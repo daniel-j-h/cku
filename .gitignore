@@ -1,0 +1,4 @@
+build
+
+third_party/*
+!third_party/build.sh
