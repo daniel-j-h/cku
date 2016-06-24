@@ -71,7 +71,8 @@ mkdir -p keystone-0.9/build && pushd $_
 
 cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX=${prefix}
+  -DCMAKE_INSTALL_PREFIX=${prefix} \
+  -DLLVM_ENABLE_CXX1Y=ON
 
 cmake --build .
 cmake --build . --target install
