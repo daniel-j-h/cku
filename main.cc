@@ -1,58 +1,61 @@
+#include <cinttypes>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+
+#include <iterator>
+#include <string>
 
 #include <capstone/capstone.h>
 #include <keystone/keystone.h>
 #include <unicorn/unicorn.h>
 
-[[noreturn]] static void panic(const char *msg) {
+[[noreturn]] static void Panic(const char *msg) {
   std::fprintf(stderr, "Error: %s\n", msg);
   std::fflush(stderr);
   std::quick_exit(EXIT_FAILURE);
 }
 
-static void ensure(bool cond, const char *msg) {
-  if (!cond)
-    panic(msg);
-}
-
-static void ensure(bool cond) {
-  if (!cond)
-    ensure(cond, "unknown");
-}
-
-struct x86_64 {
-  x86_64() {
-    auto rc = ::cs_open(CS_ARCH_X86, CS_MODE_64, &handle);
-    ensure(rc == CS_ERR_OK);
+struct Disasm {
+  static void Ensure(::cs_err code) {
+    if (code != CS_ERR_OK)
+      Panic(::cs_strerror(code));
   }
 
-  ~x86_64() {
-    auto rc = ::cs_close(&handle);
-    ensure(rc == CS_ERR_OK);
+  Disasm() { Ensure(::cs_open(CS_ARCH_X86, CS_MODE_64, &Handle)); }
+  ~Disasm() { Ensure(::cs_close(&Handle)); }
+
+  template <typename IterT> void operator()(IterT First, IterT Last, std::uint64_t Address) const {
+    ::cs_insn *Insn;
+
+    static_assert(sizeof(decltype(&*First)) != 1, "Wrong Type: Byte Required");
+    const auto Count = ::cs_disasm(Handle, (const std::uint8_t *)&*First, Last - First, Address, 0, &Insn);
+
+    struct Defer {
+      ~Defer() { ::cs_free(Insn, Count); }
+      ::cs_insn *Insn;
+      std::size_t Count;
+    } const _{Insn, Count};
+
+    if (Count == 0)
+      Ensure(::cs_errno(Handle));
+
+    for (std::size_t Ix{}; Ix < Count; ++Ix)
+      std::printf("0x%" PRIx64 ":\t%s\t\t%s\n", Insn[Ix].address, Insn[Ix].mnemonic, Insn[Ix].op_str);
   }
 
-  csh handle;
+  template <typename RangeT> void operator()(const RangeT &Range, std::uint64_t Address) const {
+    using std::begin;
+    using std::end;
+    return operator()(begin(Range), end(Range), Address);
+  }
+
+  ::csh Handle;
 };
 
-void printVersions(std::FILE *out) {
-  int csMajor, csMinor;
-  ::cs_version(&csMajor, &csMinor);
-
-  unsigned ksMajor, ksMinor;
-  ::ks_version(&ksMajor, &ksMinor);
-
-  unsigned ucMajor, ucMinor;
-  ::uc_version(&ucMajor, &ucMinor);
-
-  std::fprintf(out, "Capstone: %d.%d, "
-                    "Keystone: %u.%u, "
-                    "Unicorn: %u.%u\n",
-               csMajor, csMinor, ksMajor, ksMinor, ucMajor, ucMinor);
-}
-
 int main() {
-  printVersions(stderr);
+  const std::string code{"\x48\x31\xc0\xb0\x22\x0f\x05"};
 
-  x86_64 machine;
+  Disasm disasm;
+  disasm(code, 0x1000);
 }
